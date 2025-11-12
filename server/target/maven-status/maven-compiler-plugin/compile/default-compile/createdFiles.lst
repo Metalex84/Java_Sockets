@@ -1,1 +1,2 @@
-com/example/app/TcpSocketServer.class
+com\example\app\TcpSocketServer.class
+com\example\app\TcpSocketServer$ClientHandler.class

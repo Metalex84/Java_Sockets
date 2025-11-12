@@ -1,1 +1,4 @@
-com/example/app/TcpSocketClient.class
+com\example\app\TcpSocketClient$ConnectionWaitingThread.class
+com\example\app\TcpSocketClient.class
+com\example\app\TcpSocketClient$ConnectionThread.class
+com\example\app\TcpSocketClient$1.class

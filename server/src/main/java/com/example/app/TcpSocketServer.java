@@ -12,20 +12,25 @@ import java.util.logging.Logger;
 public class TcpSocketServer {
     static final int PORT = 9090; //
     private boolean end = false; //
+    private int clientCounter = 0; // Contador de clientes
 
     public void listen() { //
         ServerSocket serverSocket = null; //
-        Socket clientSocket = null; //
         try { //
             serverSocket = new ServerSocket(PORT); //
-            System.out.println("Servidor escuchando en el puerto " + PORT); // Mensaje añadido
+            System.out.println("Servidor escuchando en el puerto " + PORT); //
+            System.out.println("Esperando conexiones de clientes...");
+            
             while (!end) { //
-                clientSocket = serverSocket.accept(); //
-                System.out.println("Cliente conectado desde: " + clientSocket.getInetAddress().getHostAddress()); // Mensaje añadido
-                // processamos la petición del cliente
-                proccesClientMsg(clientSocket); //
-                // cerramos el socket con el cliente
-                closeClient(clientSocket); //
+                Socket clientSocket = serverSocket.accept(); //
+                clientCounter++;
+                System.out.println("\n[Cliente #" + clientCounter + "] Conectado desde: " + 
+                                   clientSocket.getInetAddress().getHostAddress());
+                
+                // Crear un nuevo Thread para manejar este cliente
+                ClientHandler clientHandler = new ClientHandler(clientSocket, clientCounter);
+                Thread clientThread = new Thread(clientHandler);
+                clientThread.start(); //
             }
             // cerramos el socket principal
             if (serverSocket != null && !serverSocket.isClosed()) { //
@@ -37,7 +42,27 @@ public class TcpSocketServer {
         }
     } //
 
-    public void proccesClientMsg(Socket clientSocket) { //
+    // Clase interna para manejar cada cliente en un Thread separado
+    private class ClientHandler implements Runnable {
+        private Socket clientSocket;
+        private int clientId;
+        
+        public ClientHandler(Socket socket, int id) {
+            this.clientSocket = socket;
+            this.clientId = id;
+        }
+        
+        @Override
+        public void run() {
+            System.out.println("[Cliente #" + clientId + "] Thread iniciado: " + 
+                             Thread.currentThread().getName());
+            proccesClientMsg(clientSocket, clientId);
+            closeClient(clientSocket, clientId);
+            System.out.println("[Cliente #" + clientId + "] Thread finalizado.");
+        }
+    }
+    
+    public void proccesClientMsg(Socket clientSocket, int clientId) { //
         boolean farewellMessage = false; //
         String clientMessage = ""; //
         BufferedReader in = null; //
@@ -54,7 +79,7 @@ public class TcpSocketServer {
 
             do { //
                 clientMessage = in.readLine(); //
-                System.out.println("Mensaje recibido del cliente: " + clientMessage); // Mensaje añadido
+                System.out.println("[Cliente #" + clientId + "] Mensaje recibido: " + clientMessage);
                 
                 if (clientMessage != null) {
                     // Aquí procesamos el mensaje del cliente
@@ -77,7 +102,7 @@ public class TcpSocketServer {
 
         } catch (IOException ex) { //
             Logger.getLogger(TcpSocketServer.class.getName()).log(Level.SEVERE,
-                    null, ex); //
+                    "[Cliente #" + clientId + "] Error", ex); //
         } finally {
             // Se puede añadir cierre de streams aquí, aunque closeClient() lo manejará en el flujo principal.
         }
@@ -97,15 +122,15 @@ public class TcpSocketServer {
         return clientMessage.trim().equalsIgnoreCase("FIN");
     }
 
-    private void closeClient(Socket clientSocket) { // Implementación del método closeClient (asumido en el PDF)
+    private void closeClient(Socket clientSocket, int clientId) { // Implementación del método closeClient (asumido en el PDF)
         try {
             if (clientSocket != null && !clientSocket.isClosed()) {
                 clientSocket.close();
-                System.out.println("Conexión con el cliente cerrada.");
+                System.out.println("[Cliente #" + clientId + "] Conexión cerrada.");
             }
         } catch (IOException e) {
             Logger.getLogger(TcpSocketServer.class.getName()).log(Level.SEVERE,
-                    "Error al cerrar el socket del cliente", e);
+                    "[Cliente #" + clientId + "] Error al cerrar el socket", e);
         }
     }
     
