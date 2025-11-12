@@ -6,39 +6,140 @@ import java.io.InputStreamReader;
 import java.io.PrintStream;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
+import java.util.Scanner;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 public class TcpSocketServer {
     static final int PORT = 9090; //
-    private boolean end = false; //
+    private volatile boolean end = false; //
     private int clientCounter = 0; // Contador de clientes
+    private ServerSocket serverSocket = null;
+
+    // Thread para escuchar comandos de administración
+    private class ServerControlThread extends Thread {
+        @Override
+        public void run() {
+            Scanner scanner = new Scanner(System.in);
+            System.out.println("\n========================================");
+            System.out.println("Comandos disponibles:");
+            System.out.println("  'STOP' o 'SHUTDOWN' - Detener el servidor");
+            System.out.println("  'STATUS' - Ver estado del servidor");
+            System.out.println("  'HELP' - Mostrar esta ayuda");
+            System.out.println("========================================\n");
+            
+            while (!end) {
+                try {
+                    if (scanner.hasNextLine()) {
+                        String command = scanner.nextLine().trim().toUpperCase();
+                        
+                        switch (command) {
+                            case "STOP":
+                            case "SHUTDOWN":
+                                System.out.println("\n[SERVIDOR] Iniciando apagado...");
+                                shutdown();
+                                break;
+                            case "STATUS":
+                                showStatus();
+                                break;
+                            case "HELP":
+                                showHelp();
+                                break;
+                            case "":
+                                // Línea vacía, ignorar
+                                break;
+                            default:
+                                System.out.println("Comando desconocido: " + command + ". Escribe 'HELP' para ver comandos disponibles.");
+                        }
+                    }
+                    Thread.sleep(100); // Pequeña pausa para no consumir CPU
+                } catch (InterruptedException e) {
+                    break;
+                } catch (Exception e) {
+                    // Ignorar otros errores de entrada
+                }
+            }
+            scanner.close();
+        }
+        
+        private void showStatus() {
+            System.out.println("\n[ESTADO DEL SERVIDOR]");
+            System.out.println("  Puerto: " + PORT);
+            System.out.println("  Clientes conectados (histórico): " + clientCounter);
+            System.out.println("  Estado: " + (end ? "Deteniendo..." : "Activo"));
+            System.out.println();
+        }
+        
+        private void showHelp() {
+            System.out.println("\n[AYUDA - COMANDOS DISPONIBLES]");
+            System.out.println("  STOP / SHUTDOWN - Detiene el servidor de forma ordenada");
+            System.out.println("  STATUS          - Muestra el estado actual del servidor");
+            System.out.println("  HELP            - Muestra este mensaje de ayuda");
+            System.out.println();
+        }
+    }
+    
+    public void shutdown() {
+        end = true;
+        try {
+            if (serverSocket != null && !serverSocket.isClosed()) {
+                serverSocket.close();
+                System.out.println("[SERVIDOR] Servidor detenido correctamente.");
+            }
+        } catch (IOException e) {
+            System.err.println("[SERVIDOR] Error al cerrar el servidor: " + e.getMessage());
+        }
+    }
 
     public void listen() { //
-        ServerSocket serverSocket = null; //
         try { //
             serverSocket = new ServerSocket(PORT); //
+            serverSocket.setSoTimeout(1000); // Timeout de 1 segundo para accept()
+            
+            System.out.println("\n╔════════════════════════════════════════╗");
+            System.out.println("║   SERVIDOR TCP INICIADO                ║");
+            System.out.println("╚════════════════════════════════════════╝");
             System.out.println("Servidor escuchando en el puerto " + PORT); //
             System.out.println("Esperando conexiones de clientes...");
             
+            // Iniciar thread de control del servidor
+            ServerControlThread controlThread = new ServerControlThread();
+            controlThread.setDaemon(false);
+            controlThread.start();
+            
             while (!end) { //
-                Socket clientSocket = serverSocket.accept(); //
-                clientCounter++;
-                System.out.println("\n[Cliente #" + clientCounter + "] Conectado desde: " + 
-                                   clientSocket.getInetAddress().getHostAddress());
-                
-                // Crear un nuevo Thread para manejar este cliente
-                ClientHandler clientHandler = new ClientHandler(clientSocket, clientCounter);
-                Thread clientThread = new Thread(clientHandler);
-                clientThread.start(); //
+                try {
+                    Socket clientSocket = serverSocket.accept(); //
+                    clientCounter++;
+                    System.out.println("\n[Cliente #" + clientCounter + "] Conectado desde: " + 
+                                       clientSocket.getInetAddress().getHostAddress());
+                    
+                    // Crear un nuevo Thread para manejar este cliente
+                    ClientHandler clientHandler = new ClientHandler(clientSocket, clientCounter);
+                    Thread clientThread = new Thread(clientHandler);
+                    clientThread.start(); //
+                } catch (SocketTimeoutException e) {
+                    // Timeout esperado, permite verificar la variable 'end'
+                    continue;
+                }
             }
-            // cerramos el socket principal
-            if (serverSocket != null && !serverSocket.isClosed()) { //
-                serverSocket.close(); //
-            }
+            
         } catch (IOException ex) { //
-            Logger.getLogger(TcpSocketServer.class.getName()).log(Level.SEVERE,
-                    null, ex); //
+            if (!end) { // Solo loggear si no fue un cierre intencional
+                Logger.getLogger(TcpSocketServer.class.getName()).log(Level.SEVERE,
+                        null, ex); //
+            }
+        } finally {
+            // cerramos el socket principal si aún está abierto
+            try {
+                if (serverSocket != null && !serverSocket.isClosed()) { //
+                    serverSocket.close(); //
+                }
+            } catch (IOException e) {
+                // Ignorar error en el cierre
+            }
+            System.out.println("\n[SERVIDOR] Servidor finalizado. Total de clientes atendidos: " + clientCounter);
         }
     } //
 
@@ -137,6 +238,13 @@ public class TcpSocketServer {
     // Método MAIN para ejecución
     public static void main(String[] args) {
         TcpSocketServer server = new TcpSocketServer();
+        
+        // Agregar shutdown hook para cierre limpio con Ctrl+C
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            System.out.println("\n[SERVIDOR] Señal de interrupción recibida (Ctrl+C)...");
+            server.shutdown();
+        }));
+        
         server.listen();
     }
 }
